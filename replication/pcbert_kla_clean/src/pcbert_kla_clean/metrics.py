@@ -41,3 +41,32 @@ def summarize_metric_rows(rows: list[dict[str, float]]) -> dict[str, float]:
     keys = rows[0].keys()
     return {key: float(np.mean([row[key] for row in rows])) for key in keys}
 
+
+def find_best_threshold(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    metric: str = "MCC",
+    min_threshold: float = 0.05,
+    max_threshold: float = 0.95,
+    steps: int = 901,
+) -> tuple[float, dict[str, float]]:
+    """Find a decision threshold using validation labels and probabilities."""
+    if metric not in {"ACC", "Rec", "Pre", "MCC", "F1", "SP"}:
+        raise ValueError(f"Unsupported threshold metric: {metric}")
+    if steps < 2:
+        raise ValueError("steps must be at least 2")
+
+    thresholds = np.linspace(min_threshold, max_threshold, steps)
+    best_threshold = 0.5
+    best_metrics = compute_binary_metrics(y_true, y_score, threshold=best_threshold)
+    best_score = best_metrics[metric]
+
+    for threshold in thresholds:
+        metrics = compute_binary_metrics(y_true, y_score, threshold=float(threshold))
+        score = metrics[metric]
+        if score > best_score:
+            best_threshold = float(threshold)
+            best_score = score
+            best_metrics = metrics
+
+    return best_threshold, best_metrics

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import random
 import sys
@@ -29,6 +30,7 @@ def ensure_ml_deps() -> None:
     global PCBertKla
     global StratifiedKFold
     global compute_binary_metrics
+    global find_best_threshold
     global joblib
     global nn
     global summarize_metric_rows
@@ -45,7 +47,11 @@ def ensure_ml_deps() -> None:
     from tqdm.auto import tqdm
     from transformers import AutoTokenizer, BertTokenizer
 
-    from pcbert_kla_clean.metrics import compute_binary_metrics, summarize_metric_rows
+    from pcbert_kla_clean.metrics import (
+        compute_binary_metrics,
+        find_best_threshold,
+        summarize_metric_rows,
+    )
     from pcbert_kla_clean.model import PCBertKla
 
 
@@ -121,12 +127,12 @@ def train_one_epoch(
     return float(np.mean(losses))
 
 
-def evaluate(
+def predict(
     model: PCBertKla,
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
-) -> tuple[float, dict[str, float]]:
+) -> tuple[float, np.ndarray, np.ndarray]:
     model.eval()
     losses: list[float] = []
     labels_all: list[float] = []
@@ -144,8 +150,19 @@ def evaluate(
             labels_all.extend(labels.detach().cpu().numpy().tolist())
             scores_all.extend(outputs.detach().cpu().numpy().tolist())
 
-    metrics = compute_binary_metrics(np.asarray(labels_all), np.asarray(scores_all))
-    return float(np.mean(losses)), metrics
+    return float(np.mean(losses)), np.asarray(labels_all), np.asarray(scores_all)
+
+
+def evaluate(
+    model: PCBertKla,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    threshold: float = 0.5,
+) -> tuple[float, dict[str, float]]:
+    loss, labels, scores = predict(model, loader, criterion, device)
+    metrics = compute_binary_metrics(labels, scores, threshold=threshold)
+    return loss, metrics
 
 
 def make_loader(
@@ -204,6 +221,43 @@ def run_data_check(train_split: KlaSplit, test_split: KlaSplit) -> None:
     print(json.dumps(report, indent=2, sort_keys=True))
 
 
+def save_predictions(
+    path: Path,
+    split: KlaSplit,
+    indices: np.ndarray,
+    scores: np.ndarray,
+    threshold: float,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as output_file:
+        writer = csv.DictWriter(
+            output_file,
+            fieldnames=[
+                "name",
+                "position",
+                "sequence",
+                "true_label",
+                "score",
+                "threshold",
+                "predicted_label",
+            ],
+        )
+        writer.writeheader()
+        for index, score in zip(indices, scores):
+            record = split.records[int(index)]
+            writer.writerow(
+                {
+                    "name": record.name,
+                    "position": record.position,
+                    "sequence": record.sequence,
+                    "true_label": record.label,
+                    "score": float(score),
+                    "threshold": threshold,
+                    "predicted_label": int(float(score) >= threshold),
+                }
+            )
+
+
 def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
     set_seed(args.seed)
     device = torch.device(args.device)
@@ -243,7 +297,13 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
 
         for epoch in range(1, args.epochs + 1):
             train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
-            val_loss, metrics = evaluate(model, val_loader, criterion, device)
+            val_loss, metrics = evaluate(
+                model,
+                val_loader,
+                criterion,
+                device,
+                threshold=args.decision_threshold,
+            )
             print(
                 f"epoch={epoch:02d} train_loss={train_loss:.4f} "
                 f"val_loss={val_loss:.4f} ACC={metrics['ACC']:.4f} "
@@ -326,7 +386,13 @@ def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split:
     for epoch in range(1, args.epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
         if val_loader is not None:
-            val_loss, val_metrics = evaluate(model, val_loader, criterion, device)
+            val_loss, val_metrics = evaluate(
+                model,
+                val_loader,
+                criterion,
+                device,
+                threshold=args.decision_threshold,
+            )
             print(
                 f"epoch={epoch:02d} train_loss={train_loss:.4f} "
                 f"val_loss={val_loss:.4f} ACC={val_metrics['ACC']:.4f} "
@@ -348,11 +414,72 @@ def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split:
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    test_loss, test_metrics = evaluate(model, test_loader, criterion, device)
+    threshold = args.decision_threshold
+    threshold_source = "fixed"
+    validation_threshold_metrics = None
+
+    if args.calibrate_threshold != "none":
+        if val_loader is None:
+            raise ValueError(
+                "--calibrate-threshold requires --validation-fraction greater than 0"
+            )
+        val_loss, val_labels, val_scores = predict(model, val_loader, criterion, device)
+        threshold, validation_threshold_metrics = find_best_threshold(
+            val_labels,
+            val_scores,
+            metric=args.calibrate_threshold,
+            min_threshold=args.threshold_min,
+            max_threshold=args.threshold_max,
+            steps=args.threshold_steps,
+        )
+        threshold_source = f"validation_{args.calibrate_threshold}"
+        print("\nCalibrated threshold:")
+        print(
+            json.dumps(
+                {
+                    "threshold": threshold,
+                    "source": threshold_source,
+                    "validation_loss": val_loss,
+                    **validation_threshold_metrics,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        if args.save_predictions:
+            save_predictions(
+                args.output_dir / "validation_predictions.csv",
+                train_split,
+                val_idx,
+                val_scores,
+                threshold,
+            )
+
+    test_loss, test_labels, test_scores = predict(model, test_loader, criterion, device)
+    test_metrics = compute_binary_metrics(test_labels, test_scores, threshold=threshold)
     print("\nIndependent test:")
-    print(json.dumps({"loss": test_loss, **test_metrics}, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "loss": test_loss,
+                "threshold": threshold,
+                "threshold_source": threshold_source,
+                **test_metrics,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    if args.save_predictions:
+        save_predictions(
+            args.output_dir / "independent_test_predictions.csv",
+            test_split,
+            test_indices,
+            test_scores,
+            threshold,
+        )
     if args.save_models:
         torch.save(model.state_dict(), args.output_dir / "pcbert_kla_independent.pt")
         joblib.dump(scaler, args.output_dir / "feature_scaler_independent.joblib")
@@ -385,6 +512,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--monitor-metric", default="ACC")
     parser.add_argument("--validation-fraction", type=float, default=0.1)
+    parser.add_argument("--decision-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--calibrate-threshold",
+        choices=["none", "ACC", "Rec", "Pre", "MCC", "F1", "SP"],
+        default="none",
+        help="Choose a decision threshold on the validation subset before testing.",
+    )
+    parser.add_argument("--threshold-min", type=float, default=0.05)
+    parser.add_argument("--threshold-max", type=float, default=0.95)
+    parser.add_argument("--threshold-steps", type=int, default=901)
+    parser.add_argument(
+        "--save-predictions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save validation/test probability CSV files for independent runs.",
+    )
     parser.add_argument("--save-models", action="store_true")
     return parser.parse_args()
 

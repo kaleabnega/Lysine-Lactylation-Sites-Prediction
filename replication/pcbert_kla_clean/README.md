@@ -59,6 +59,24 @@ For an independent test run:
   --save-models
 ```
 
+For validation-calibrated thresholding, choose the threshold on the held-out
+validation subset and then apply that fixed threshold to the independent test
+set:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --calibrate-threshold MCC \
+  --save-models
+```
+
+Use `--calibrate-threshold F1` if the goal is to maximize validation F1
+instead of MCC. The independent test set is not used to choose the threshold.
+Prediction CSVs are saved by default in `outputs/` for auditability.
+
 Free Colab GPU memory may be tight because ProtBert is large. If the session
 runs out of memory, first try reducing `--batch-size` to `2` or `1`.
 
@@ -87,6 +105,7 @@ The default runner is faithful to the paper/notebook:
 - batch size `4`
 - 30 epochs
 - 5-fold shuffled KFold with seed `42`
+- fixed decision threshold `0.5` unless `--calibrate-threshold` is provided
 
 For stricter follow-up experiments, prefer `--splitter stratified` and later a
 homology-aware split.
