@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 from torch import nn
-from transformers import AutoModel
+from transformers import AutoModel, BertModel
 
 
 class FeatureAttention(nn.Module):
@@ -26,7 +26,7 @@ class PCBertKla(nn.Module):
         cache_dir: str | None = None,
     ) -> None:
         super().__init__()
-        self.encoder = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
+        self.encoder = self._load_encoder(model_name, cache_dir)
         self._truncate_encoder_layers(encoder_layers)
 
         hidden_size = int(self.encoder.config.hidden_size)
@@ -38,6 +38,12 @@ class PCBertKla(nn.Module):
         self.relu = nn.ReLU()
         self.dropout1 = nn.Dropout(p=dropout1)
         self.dropout2 = nn.Dropout(p=dropout2)
+
+    @staticmethod
+    def _load_encoder(model_name: str, cache_dir: str | None):
+        if model_name == "Rostlab/prot_bert":
+            return BertModel.from_pretrained(model_name, cache_dir=cache_dir)
+        return AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
 
     def _truncate_encoder_layers(self, encoder_layers: int) -> None:
         if encoder_layers <= 0:
@@ -72,4 +78,3 @@ class PCBertKla(nn.Module):
         x = self.relu(self.fc2(x))
         x = self.dropout2(x)
         return torch.sigmoid(self.fc3(x)).squeeze(-1)
-
