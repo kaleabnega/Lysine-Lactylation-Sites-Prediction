@@ -191,7 +191,11 @@ def run_data_check(train_split: KlaSplit, test_split: KlaSplit) -> None:
 def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
     set_seed(args.seed)
     device = torch.device(args.device)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name,
+        cache_dir=args.cache_dir,
+        use_fast=False,
+    )
     labels = train_split.labels
 
     if args.splitter == "stratified":
@@ -266,7 +270,11 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
 def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split: KlaSplit) -> None:
     set_seed(args.seed)
     device = torch.device(args.device)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name,
+        cache_dir=args.cache_dir,
+        use_fast=False,
+    )
 
     if args.validation_fraction > 0:
         train_idx, val_idx = train_test_split(
