@@ -22,6 +22,7 @@ from pcbert_kla_clean.data import (  # noqa: E402
 
 def ensure_ml_deps() -> None:
     global AutoTokenizer
+    global BertTokenizer
     global DataLoader
     global KFold
     global MinMaxScaler
@@ -42,7 +43,7 @@ def ensure_ml_deps() -> None:
     from torch import nn
     from torch.utils.data import DataLoader
     from tqdm.auto import tqdm
-    from transformers import AutoTokenizer
+    from transformers import AutoTokenizer, BertTokenizer
 
     from pcbert_kla_clean.metrics import compute_binary_metrics, summarize_metric_rows
     from pcbert_kla_clean.model import PCBertKla
@@ -77,7 +78,7 @@ def format_protbert_sequence(sequence: str) -> str:
     return " ".join(sequence)
 
 
-def make_collate_fn(tokenizer: AutoTokenizer, max_length: int):
+def make_collate_fn(tokenizer, max_length: int):
     def collate(batch):
         sequences, features, labels = zip(*batch)
         encoded = tokenizer(
@@ -151,7 +152,7 @@ def make_loader(
     split: KlaSplit,
     indices: np.ndarray,
     scaled_features: np.ndarray,
-    tokenizer: AutoTokenizer,
+    tokenizer,
     batch_size: int,
     shuffle: bool,
     max_length: int,
@@ -179,6 +180,21 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
     return model.to(device)
 
 
+def load_tokenizer(model_name: str, cache_dir: str | None):
+    if model_name == "Rostlab/prot_bert":
+        return BertTokenizer.from_pretrained(
+            model_name,
+            cache_dir=cache_dir,
+            do_lower_case=False,
+        )
+
+    return AutoTokenizer.from_pretrained(
+        model_name,
+        cache_dir=cache_dir,
+        use_fast=False,
+    )
+
+
 def run_data_check(train_split: KlaSplit, test_split: KlaSplit) -> None:
     report = {
         "train": describe_split(train_split),
@@ -191,11 +207,7 @@ def run_data_check(train_split: KlaSplit, test_split: KlaSplit) -> None:
 def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
     set_seed(args.seed)
     device = torch.device(args.device)
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name,
-        cache_dir=args.cache_dir,
-        use_fast=False,
-    )
+    tokenizer = load_tokenizer(args.model_name, args.cache_dir)
     labels = train_split.labels
 
     if args.splitter == "stratified":
@@ -270,11 +282,7 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
 def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split: KlaSplit) -> None:
     set_seed(args.seed)
     device = torch.device(args.device)
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name,
-        cache_dir=args.cache_dir,
-        use_fast=False,
-    )
+    tokenizer = load_tokenizer(args.model_name, args.cache_dir)
 
     if args.validation_fraction > 0:
         train_idx, val_idx = train_test_split(
