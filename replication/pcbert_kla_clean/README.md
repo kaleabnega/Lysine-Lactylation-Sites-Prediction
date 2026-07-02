@@ -77,6 +77,31 @@ Use `--calibrate-threshold F1` if the goal is to maximize validation F1
 instead of MCC. The independent test set is not used to choose the threshold.
 Prediction CSVs are saved by default in `outputs/` for auditability.
 
+For seed ensembling, train several independent models and average their
+independent-test probabilities:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run ensemble-independent \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --ensemble-seeds 42,123,2025
+```
+
+This is more expensive than a single independent run because it trains one
+model per seed. Start with three seeds on free Colab; use five seeds if the
+session has enough time:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run ensemble-independent \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --ensemble-seeds 42,123,2025,3407,777
+```
+
 Free Colab GPU memory may be tight because ProtBert is large. If the session
 runs out of memory, first try reducing `--batch-size` to `2` or `1`.
 

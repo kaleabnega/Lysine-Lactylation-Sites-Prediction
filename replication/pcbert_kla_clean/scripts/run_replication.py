@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import json
 import random
 import sys
@@ -339,16 +340,25 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
     print(json.dumps(summarize_metric_rows(fold_metrics), indent=2, sort_keys=True))
 
 
-def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split: KlaSplit) -> None:
-    set_seed(args.seed)
+def train_and_predict_independent(
+    args: argparse.Namespace,
+    train_split: KlaSplit,
+    test_split: KlaSplit,
+    seed: int,
+    tokenizer,
+    device: torch.device,
+    output_dir: Path | None = None,
+) -> dict[str, object]:
+    set_seed(seed)
     device = torch.device(args.device)
-    tokenizer = load_tokenizer(args.model_name, args.cache_dir)
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.validation_fraction > 0:
         train_idx, val_idx = train_test_split(
             np.arange(len(train_split.labels)),
             test_size=args.validation_fraction,
-            random_state=args.seed,
+            random_state=seed,
             stratify=train_split.labels,
         )
     else:
@@ -446,9 +456,9 @@ def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split:
                 sort_keys=True,
             )
         )
-        if args.save_predictions:
+        if args.save_predictions and output_dir is not None:
             save_predictions(
-                args.output_dir / "validation_predictions.csv",
+                output_dir / "validation_predictions.csv",
                 train_split,
                 val_idx,
                 val_scores,
@@ -457,14 +467,59 @@ def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split:
 
     test_loss, test_labels, test_scores = predict(model, test_loader, criterion, device)
     test_metrics = compute_binary_metrics(test_labels, test_scores, threshold=threshold)
+
+    if args.save_predictions and output_dir is not None:
+        save_predictions(
+            output_dir / "independent_test_predictions.csv",
+            test_split,
+            test_indices,
+            test_scores,
+            threshold,
+        )
+    if args.save_models and output_dir is not None:
+        torch.save(model.state_dict(), output_dir / "pcbert_kla_independent.pt")
+        joblib.dump(scaler, output_dir / "feature_scaler_independent.joblib")
+
+    result = {
+        "seed": seed,
+        "loss": test_loss,
+        "threshold": threshold,
+        "threshold_source": threshold_source,
+        "metrics": test_metrics,
+        "test_labels": test_labels,
+        "test_scores": test_scores,
+        "test_indices": test_indices,
+        "validation_threshold_metrics": validation_threshold_metrics,
+    }
+
+    del model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    gc.collect()
+    return result
+
+
+def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split: KlaSplit) -> None:
+    device = torch.device(args.device)
+    tokenizer = load_tokenizer(args.model_name, args.cache_dir)
+    result = train_and_predict_independent(
+        args,
+        train_split,
+        test_split,
+        seed=args.seed,
+        tokenizer=tokenizer,
+        device=device,
+        output_dir=args.output_dir,
+    )
+
     print("\nIndependent test:")
     print(
         json.dumps(
             {
-                "loss": test_loss,
-                "threshold": threshold,
-                "threshold_source": threshold_source,
-                **test_metrics,
+                "loss": result["loss"],
+                "threshold": result["threshold"],
+                "threshold_source": result["threshold_source"],
+                **result["metrics"],
             },
             indent=2,
             sort_keys=True,
@@ -472,17 +527,133 @@ def run_independent(args: argparse.Namespace, train_split: KlaSplit, test_split:
     )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def parse_seed_list(seed_text: str) -> list[int]:
+    seeds = [int(seed.strip()) for seed in seed_text.split(",") if seed.strip()]
+    if not seeds:
+        raise ValueError("--ensemble-seeds must contain at least one seed")
+    return seeds
+
+
+def save_ensemble_predictions(
+    path: Path,
+    split: KlaSplit,
+    indices: np.ndarray,
+    scores_by_seed: dict[int, np.ndarray],
+    ensemble_scores: np.ndarray,
+    threshold: float,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "name",
+        "position",
+        "sequence",
+        "true_label",
+        "ensemble_score",
+        "threshold",
+        "predicted_label",
+    ]
+    fieldnames.extend(f"score_seed_{seed}" for seed in scores_by_seed)
+
+    with path.open("w", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row_offset, index in enumerate(indices):
+            record = split.records[int(index)]
+            row = {
+                "name": record.name,
+                "position": record.position,
+                "sequence": record.sequence,
+                "true_label": record.label,
+                "ensemble_score": float(ensemble_scores[row_offset]),
+                "threshold": threshold,
+                "predicted_label": int(float(ensemble_scores[row_offset]) >= threshold),
+            }
+            for seed, scores in scores_by_seed.items():
+                row[f"score_seed_{seed}"] = float(scores[row_offset])
+            writer.writerow(row)
+
+
+def run_ensemble_independent(
+    args: argparse.Namespace,
+    train_split: KlaSplit,
+    test_split: KlaSplit,
+) -> None:
+    seeds = parse_seed_list(args.ensemble_seeds)
+    device = torch.device(args.device)
+    tokenizer = load_tokenizer(args.model_name, args.cache_dir)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    results: list[dict[str, object]] = []
+    scores_by_seed: dict[int, np.ndarray] = {}
+    labels = None
+    test_indices = None
+
+    for seed in seeds:
+        print(f"\nEnsemble member seed={seed}")
+        member_output_dir = args.output_dir / f"seed_{seed}"
+        result = train_and_predict_independent(
+            args,
+            train_split,
+            test_split,
+            seed=seed,
+            tokenizer=tokenizer,
+            device=device,
+            output_dir=member_output_dir,
+        )
+        results.append(result)
+        scores_by_seed[seed] = result["test_scores"]
+        labels = result["test_labels"]
+        test_indices = result["test_indices"]
+        print(
+            "member:",
+            json.dumps(
+                {
+                    "seed": seed,
+                    "loss": result["loss"],
+                    "threshold": result["threshold"],
+                    "threshold_source": result["threshold_source"],
+                    **result["metrics"],
+                },
+                sort_keys=True,
+            ),
+        )
+
+    if labels is None or test_indices is None:
+        raise RuntimeError("No ensemble member results were produced")
+
+    ensemble_scores = np.mean(np.stack(list(scores_by_seed.values()), axis=0), axis=0)
+    threshold = args.decision_threshold
+    threshold_source = "fixed"
+    ensemble_metrics = compute_binary_metrics(labels, ensemble_scores, threshold=threshold)
+    mean_member_metrics = summarize_metric_rows([result["metrics"] for result in results])
+
+    print("\nEnsemble independent test:")
+    print(
+        json.dumps(
+            {
+                "seeds": seeds,
+                "threshold": threshold,
+                "threshold_source": threshold_source,
+                **ensemble_metrics,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    print("\nMean single-seed member metrics:")
+    print(json.dumps(mean_member_metrics, indent=2, sort_keys=True))
+
     if args.save_predictions:
-        save_predictions(
-            args.output_dir / "independent_test_predictions.csv",
+        save_ensemble_predictions(
+            args.output_dir / "ensemble_independent_test_predictions.csv",
             test_split,
             test_indices,
-            test_scores,
+            scores_by_seed,
+            ensemble_scores,
             threshold,
         )
-    if args.save_models:
-        torch.save(model.state_dict(), args.output_dir / "pcbert_kla_independent.pt")
-        joblib.dump(scaler, args.output_dir / "feature_scaler_independent.joblib")
 
 
 def parse_args() -> argparse.Namespace:
@@ -494,7 +665,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--run",
-        choices=["data-check", "cv", "independent"],
+        choices=["data-check", "cv", "independent", "ensemble-independent"],
         default="data-check",
     )
     parser.add_argument("--model-name", default="Rostlab/prot_bert")
@@ -502,6 +673,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "outputs")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--ensemble-seeds", default="42,123,2025,3407,777")
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--splitter", choices=["kfold", "stratified"], default="kfold")
     parser.add_argument("--epochs", type=int, default=30)
@@ -555,6 +727,11 @@ def main() -> None:
         if args.device == "auto":
             args.device = "cuda" if torch.cuda.is_available() else "cpu"
         run_independent(args, train_split, test_split)
+    elif args.run == "ensemble-independent":
+        ensure_ml_deps()
+        if args.device == "auto":
+            args.device = "cuda" if torch.cuda.is_available() else "cpu"
+        run_ensemble_independent(args, train_split, test_split)
     else:
         raise ValueError(args.run)
 
