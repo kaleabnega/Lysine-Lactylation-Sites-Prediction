@@ -102,6 +102,37 @@ session has enough time:
   --ensemble-seeds 42,123,2025,3407,777
 ```
 
+For optimizer modernization, switch from the paper's SGD setup to AdamW:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 2e-5 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1
+```
+
+If that is promising, combine AdamW with the ensemble mode:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run ensemble-independent \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 2e-5 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1 \
+  --ensemble-seeds 42,123,2025
+```
+
 Free Colab GPU memory may be tight because ProtBert is large. If the session
 runs out of memory, first try reducing `--batch-size` to `2` or `1`.
 
@@ -127,6 +158,8 @@ The default runner is faithful to the paper/notebook:
 - physicochemical feature vector dimension 27
 - SGD optimizer
 - learning rate `0.003`
+- weight decay `0.0`
+- no scheduler
 - batch size `4`
 - 30 epochs
 - 5-fold shuffled KFold with seed `42`

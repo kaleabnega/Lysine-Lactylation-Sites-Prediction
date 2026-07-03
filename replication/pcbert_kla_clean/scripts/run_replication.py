@@ -33,6 +33,7 @@ def ensure_ml_deps() -> None:
     global compute_binary_metrics
     global find_best_threshold
     global joblib
+    global get_linear_schedule_with_warmup
     global nn
     global summarize_metric_rows
     global torch
@@ -46,7 +47,7 @@ def ensure_ml_deps() -> None:
     from torch import nn
     from torch.utils.data import DataLoader
     from tqdm.auto import tqdm
-    from transformers import AutoTokenizer, BertTokenizer
+    from transformers import AutoTokenizer, BertTokenizer, get_linear_schedule_with_warmup
 
     from pcbert_kla_clean.metrics import (
         compute_binary_metrics,
@@ -110,6 +111,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
+    scheduler=None,
 ) -> float:
     model.train()
     losses: list[float] = []
@@ -123,6 +125,8 @@ def train_one_epoch(
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
         losses.append(float(loss.detach().cpu()))
 
     return float(np.mean(losses))
@@ -196,6 +200,39 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
         cache_dir=args.cache_dir,
     )
     return model.to(device)
+
+
+def build_optimizer(args: argparse.Namespace, model: PCBertKla):
+    if args.optimizer == "sgd":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=args.learning_rate,
+            momentum=args.sgd_momentum,
+            weight_decay=args.weight_decay,
+        )
+    if args.optimizer == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(),
+            lr=args.learning_rate,
+            betas=(args.adam_beta1, args.adam_beta2),
+            eps=args.adam_epsilon,
+            weight_decay=args.weight_decay,
+        )
+    raise ValueError(f"Unsupported optimizer: {args.optimizer}")
+
+
+def build_scheduler(args: argparse.Namespace, optimizer, steps_per_epoch: int):
+    if args.scheduler == "none":
+        return None
+    if args.scheduler == "linear":
+        total_steps = max(1, steps_per_epoch * args.epochs)
+        warmup_steps = int(total_steps * args.warmup_ratio)
+        return get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
+    raise ValueError(f"Unsupported scheduler: {args.scheduler}")
 
 
 def load_tokenizer(model_name: str, cache_dir: str | None):
@@ -290,14 +327,22 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
         )
         model = build_model(args, feature_dim=train_split.features.shape[1], device=device)
         criterion = nn.BCELoss()
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate)
+        optimizer = build_optimizer(args, model)
+        scheduler = build_scheduler(args, optimizer, steps_per_epoch=len(train_loader))
 
         best_metrics: dict[str, float] | None = None
         best_score = -np.inf
         patience_left = args.patience
 
         for epoch in range(1, args.epochs + 1):
-            train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
+            train_loss = train_one_epoch(
+                model,
+                train_loader,
+                optimizer,
+                criterion,
+                device,
+                scheduler=scheduler,
+            )
             val_loss, metrics = evaluate(
                 model,
                 val_loader,
@@ -387,14 +432,22 @@ def train_and_predict_independent(
 
     model = build_model(args, feature_dim=train_split.features.shape[1], device=device)
     criterion = nn.BCELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate)
+    optimizer = build_optimizer(args, model)
+    scheduler = build_scheduler(args, optimizer, steps_per_epoch=len(train_loader))
 
     best_state = None
     best_val_score = -np.inf
     patience_left = args.patience
 
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss = train_one_epoch(
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            scheduler=scheduler,
+        )
         if val_loader is not None:
             val_loss, val_metrics = evaluate(
                 model,
@@ -678,7 +731,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--splitter", choices=["kfold", "stratified"], default="kfold")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--optimizer", choices=["sgd", "adamw"], default="sgd")
     parser.add_argument("--learning-rate", type=float, default=0.003)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--sgd-momentum", type=float, default=0.0)
+    parser.add_argument("--adam-beta1", type=float, default=0.9)
+    parser.add_argument("--adam-beta2", type=float, default=0.999)
+    parser.add_argument("--adam-epsilon", type=float, default=1e-8)
+    parser.add_argument("--scheduler", choices=["none", "linear"], default="none")
+    parser.add_argument("--warmup-ratio", type=float, default=0.0)
     parser.add_argument("--encoder-layers", type=int, default=4)
     parser.add_argument("--max-length", type=int, default=64)
     parser.add_argument("--patience", type=int, default=0)
