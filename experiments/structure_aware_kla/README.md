@@ -175,7 +175,11 @@ or full-length sequences from the benchmark source or associated papers.
 Milestone checklist:
 
 ```text
-[ ] Find original DeepKla/PCBert-Kla full protein records.
+[x] Inspect original DeepKla repository data files.
+[x] Build a first exact window-to-proteome mapping script.
+[x] Test exact mapping against UniProt japonica and Ensembl Plants rice FASTA.
+[ ] Find original DeepKla/PCBert-Kla full protein records from source papers or
+    supplementary files.
 [ ] Build a site table with protein accession and full-site position.
 [ ] Verify every 51-aa window maps uniquely to a full protein.
 [ ] Download or predict full-length structures.
@@ -183,6 +187,70 @@ Milestone checklist:
 [ ] Add a structure graph encoder branch to the model.
 [ ] Run ablations against the AdamW PCBert-Kla baseline.
 ```
+
+## Exact Mapping Attempt
+
+A reusable mapping script is available at:
+
+```text
+experiments/structure_aware_kla/scripts/map_windows_to_proteome.py
+```
+
+Example command:
+
+```bash
+python experiments/structure_aware_kla/scripts/map_windows_to_proteome.py \
+  --proteome-fasta /path/to/rice_proteome.fa \
+  --output-dir experiments/structure_aware_kla/results/window_mapping
+```
+
+Tested sources:
+
+```text
+1. Original DeepKla GitHub data:
+   https://github.com/linDing-group/DeepKla
+
+2. UniProt Oryza sativa subsp. japonica proteins:
+   https://rest.uniprot.org/uniprotkb/stream?compressed=false&format=fasta&query=%28organism_id%3A39947%29
+
+3. UniProt Oryza sativa species-level proteins:
+   https://rest.uniprot.org/uniprotkb/stream?compressed=false&format=fasta&query=%28organism_id%3A4530%29
+
+4. Ensembl Plants Oryza sativa IRGSP-1.0 peptide FASTA:
+   https://ftp.ensemblgenomes.ebi.ac.uk/pub/plants/current/fasta/oryza_sativa/pep/Oryza_sativa.IRGSP-1.0.pep.all.fa.gz
+```
+
+Observed result:
+
+```text
+Original DeepKla upTrain.fa and fungiForTest.fa contain only labels and 51-aa
+windows, not protein accessions.
+
+Exact mapping against UniProt japonica:
+  Proteins searched: 61,200
+  Unique-window status counts:
+    multiple_matches: 1
+    no_match: 1,936
+
+Exact mapping against Ensembl Plants IRGSP-1.0:
+  Proteins searched: 42,582
+  Unique-window status counts:
+    multiple_matches: 1
+    no_match: 1,936
+```
+
+Interpretation:
+
+```text
+The provided 51-aa benchmark windows are not directly recoverable by exact
+substring search against the tested current rice proteome FASTA files. The only
+matched unique window is ambiguous/repetitive, so it is not useful for structure
+mapping.
+```
+
+This means the next recovery step should target the original lactylome source
+paper/supplementary tables used by DeepKla, or request the full site table from
+the DeepKla/PCBert-Kla authors.
 
 ## Practical Prototype If Full IDs Cannot Be Recovered
 
