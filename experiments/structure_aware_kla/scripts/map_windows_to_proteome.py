@@ -226,14 +226,25 @@ def parse_args() -> argparse.Namespace:
         description="Map PCBert/DeepKla 51-aa windows to full proteome FASTA records."
     )
     parser.add_argument(
+        "--windows",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Window file to map. Can be passed multiple times. "
+            "The split name is inferred from the file stem unless --train-windows "
+            "or --test-windows is used."
+        ),
+    )
+    parser.add_argument(
         "--train-windows",
         type=Path,
-        default=Path("baselines/PCBert-Kla-original/data/train.csv"),
+        default=None,
     )
     parser.add_argument(
         "--test-windows",
         type=Path,
-        default=Path("baselines/PCBert-Kla-original/data/test.csv"),
+        default=None,
     )
     parser.add_argument("--proteome-fasta", type=Path, required=True)
     parser.add_argument(
@@ -246,10 +257,23 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    windows = [
-        *parse_pcbert_window_file(args.train_windows, split="train"),
-        *parse_pcbert_window_file(args.test_windows, split="test"),
-    ]
+    window_files: list[tuple[Path, str]] = []
+    if args.windows:
+        window_files.extend((path, path.stem) for path in args.windows)
+    if args.train_windows is not None:
+        window_files.append((args.train_windows, "train"))
+    if args.test_windows is not None:
+        window_files.append((args.test_windows, "test"))
+    if not window_files:
+        window_files = [
+            (Path("baselines/PCBert-Kla-original/data/train.csv"), "train"),
+            (Path("baselines/PCBert-Kla-original/data/test.csv"), "test"),
+        ]
+
+    windows = []
+    for path, split in window_files:
+        windows.extend(parse_pcbert_window_file(path, split=split))
+
     proteins = parse_fasta(args.proteome_fasta)
     rows, unique_rows = map_windows(windows, proteins)
 

@@ -1,0 +1,145 @@
+# Dataset Provenance Audit
+
+## DeepKla Versus PCBert-Kla
+
+These checks compare sequence-label multisets, ignoring superficial header format differences.
+
+```json
+{
+  "test": {
+    "left_label_counts": {
+      "0": 177,
+      "1": 177
+    },
+    "left_only_sequence_label_pairs": 0,
+    "left_records": 354,
+    "left_unique_sequences": 349,
+    "right_label_counts": {
+      "0": 177,
+      "1": 177
+    },
+    "right_only_sequence_label_pairs": 0,
+    "right_records": 354,
+    "right_unique_sequences": 349,
+    "sequence_label_multiset_equal": true
+  },
+  "train": {
+    "left_label_counts": {
+      "0": 1767,
+      "1": 1720
+    },
+    "left_only_sequence_label_pairs": 0,
+    "left_records": 3487,
+    "left_unique_sequences": 1839,
+    "right_label_counts": {
+      "0": 1767,
+      "1": 1720
+    },
+    "right_only_sequence_label_pairs": 0,
+    "right_records": 3487,
+    "right_unique_sequences": 1839,
+    "sequence_label_multiset_equal": true
+  }
+}
+```
+
+## Meng 2021 Table S1 Integrity
+
+```json
+{
+  "amino_acid_counts": {
+    "K": 638
+  },
+  "data_rows": 638,
+  "duplicate_site_keys": 0,
+  "nonempty_accession_position_rows": 638,
+  "unique_accession_position_amino_acid_sites": 638,
+  "unique_protein_accessions": 342
+}
+```
+
+## Meng 2021 Peptide Evidence Against Benchmark Windows
+
+```json
+{
+  "test": {
+    "counts": {
+      "label_0_unmatched": 177,
+      "label_1_matched": 1,
+      "label_1_unmatched": 176
+    },
+    "modified_peptides": 627,
+    "windows": 354
+  },
+  "train": {
+    "counts": {
+      "label_0_matched": 1,
+      "label_0_unmatched": 1766,
+      "label_1_matched": 10,
+      "label_1_unmatched": 1710
+    },
+    "modified_peptides": 627,
+    "windows": 3487
+  }
+}
+```
+
+## Meng 2021 Reconstructed Window Overlap
+
+```json
+{
+  "out_of_range": 0,
+  "overlap_with_unique_benchmark_windows": 0,
+  "proteins_searched": 61200,
+  "reconstructed_51aa_windows": 529,
+  "table_s1_accessions": 342,
+  "table_s1_accessions_present": 335,
+  "unique_reconstructed_51aa_windows": 529,
+  "valid_k_sites": 626,
+  "wrong_amino_acid": 1
+}
+```
+
+## Botrytis Proteome Mapping
+
+```json
+{
+  "combined": {
+    "proteins_searched": 12998,
+    "row_status_counts": {
+      "multiple_matches": 963,
+      "unique_match": 3464
+    },
+    "unique_window_status_counts": {
+      "multiple_matches": 250,
+      "unique_match": 1687
+    }
+  },
+  "test": {
+    "proteins_searched": 12998,
+    "row_status_counts": {
+      "multiple_matches": 89,
+      "unique_match": 319
+    },
+    "unique_window_status_counts": {
+      "multiple_matches": 35,
+      "unique_match": 314
+    }
+  },
+  "train": {
+    "proteins_searched": 12998,
+    "row_status_counts": {
+      "multiple_matches": 874,
+      "unique_match": 3145
+    },
+    "unique_window_status_counts": {
+      "multiple_matches": 232,
+      "unique_match": 1607
+    }
+  }
+}
+```
+
+## Interpretation
+
+PCBert-Kla and public DeepKla use the same benchmark sequence-label multisets. Meng et al. 2021 Table S1 is internally consistent and matches the reported rice lactylome scale, but it does not currently reconstruct the public benchmark training windows by exact sequence.
