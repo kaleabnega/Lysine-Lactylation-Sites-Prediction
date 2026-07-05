@@ -221,3 +221,71 @@ class TokenGatedPCBertKla(nn.Module):
         feature_embedding = self.feature_projection(features)
         fused = self.fusion(sequence_embedding, feature_embedding)
         return torch.sigmoid(self.classifier(fused)).squeeze(-1)
+
+
+class HybridTokenGatedPCBertKla(nn.Module):
+    """PCBert-Kla variant that preserves CLS context and adds site-aware pooling."""
+
+    def __init__(
+        self,
+        model_name: str = "Rostlab/prot_bert",
+        feature_dim: int = 27,
+        encoder_layers: int = 4,
+        fusion_dim: int = 256,
+        attention_dim: int = 256,
+        dropout: float = 0.2,
+        site_token_index: int = 26,
+        cache_dir: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.encoder = load_encoder(model_name, cache_dir)
+        truncate_encoder_layers(self.encoder, encoder_layers)
+
+        hidden_size = int(self.encoder.config.hidden_size)
+        self.site_attention = SiteAttentionPooling(
+            hidden_size=hidden_size,
+            attention_dim=attention_dim,
+            site_token_index=site_token_index,
+        )
+        self.sequence_projection = nn.Sequential(
+            nn.LayerNorm(hidden_size * 2),
+            nn.Linear(hidden_size * 2, fusion_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.feature_projection = nn.Sequential(
+            nn.LayerNorm(feature_dim),
+            nn.Linear(feature_dim, fusion_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.fusion = GatedFusion(fusion_dim)
+        self.classifier = nn.Sequential(
+            ResidualBlock(fusion_dim, dropout=dropout),
+            nn.LayerNorm(fusion_dim),
+            nn.Linear(fusion_dim, fusion_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(fusion_dim // 2, 1),
+        )
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        features: torch.Tensor,
+        token_type_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        model_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+        if token_type_ids is not None:
+            model_inputs["token_type_ids"] = token_type_ids
+
+        outputs = self.encoder(**model_inputs)
+        cls_embedding = outputs.last_hidden_state[:, 0, :]
+        site_embedding = self.site_attention(outputs.last_hidden_state, attention_mask)
+        sequence_embedding = self.sequence_projection(
+            torch.cat((cls_embedding, site_embedding), dim=1)
+        )
+        feature_embedding = self.feature_projection(features)
+        fused = self.fusion(sequence_embedding, feature_embedding)
+        return torch.sigmoid(self.classifier(fused)).squeeze(-1)

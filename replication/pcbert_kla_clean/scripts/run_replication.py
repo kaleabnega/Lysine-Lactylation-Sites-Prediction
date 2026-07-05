@@ -29,6 +29,7 @@ def ensure_ml_deps() -> None:
     global KFold
     global MinMaxScaler
     global PCBertKla
+    global HybridTokenGatedPCBertKla
     global TokenGatedPCBertKla
     global StratifiedKFold
     global compute_binary_metrics
@@ -55,7 +56,7 @@ def ensure_ml_deps() -> None:
         find_best_threshold,
         summarize_metric_rows,
     )
-    from pcbert_kla_clean.model import PCBertKla, TokenGatedPCBertKla
+    from pcbert_kla_clean.model import PCBertKla, HybridTokenGatedPCBertKla, TokenGatedPCBertKla
 
 
 class KlaDataset:
@@ -203,6 +204,17 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
         )
     elif args.architecture == "token_gated":
         model = TokenGatedPCBertKla(
+            model_name=args.model_name,
+            feature_dim=feature_dim,
+            encoder_layers=args.encoder_layers,
+            fusion_dim=args.fusion_dim,
+            attention_dim=args.attention_dim,
+            dropout=args.arch_dropout,
+            site_token_index=args.site_token_index,
+            cache_dir=args.cache_dir,
+        )
+    elif args.architecture == "hybrid_gated":
+        model = HybridTokenGatedPCBertKla(
             model_name=args.model_name,
             feature_dim=feature_dim,
             encoder_layers=args.encoder_layers,
@@ -739,11 +751,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="Rostlab/prot_bert")
     parser.add_argument(
         "--architecture",
-        choices=["baseline", "token_gated"],
+        choices=["baseline", "token_gated", "hybrid_gated"],
         default="baseline",
         help=(
             "Model architecture. 'baseline' preserves PCBert-Kla; 'token_gated' "
-            "uses site-aware token attention and gated physicochemical fusion."
+            "uses site-aware token attention and gated physicochemical fusion; "
+            "'hybrid_gated' preserves CLS context and adds site-aware pooling."
         ),
     )
     parser.add_argument("--cache-dir", default=None)

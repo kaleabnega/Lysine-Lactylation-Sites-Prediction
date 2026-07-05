@@ -151,6 +151,24 @@ attention and gated fusion:
   --warmup-ratio 0.1
 ```
 
+If `token_gated` improves ranking metrics but not threshold metrics, try the
+more conservative hybrid variant. It preserves the original CLS/global ProtBert
+context and adds site-aware token pooling:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture hybrid_gated \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 2e-5 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1
+```
+
 If the single-seed run is promising, evaluate the same architecture as a
 three-seed ensemble:
 
@@ -240,5 +258,10 @@ Recommended ablation order:
 1. baseline + SGD
 2. baseline + AdamW
 3. token_gated + AdamW
-4. token_gated + AdamW + seed ensemble
+4. hybrid_gated + AdamW
+5. best architecture + AdamW + seed ensemble
 ```
+
+`hybrid_gated` is the conservative follow-up variant: it keeps the baseline CLS
+embedding and augments it with the central-lysine-aware token-pooled embedding
+before gated fusion with physicochemical features.
