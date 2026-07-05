@@ -133,6 +133,42 @@ If that is promising, combine AdamW with the ensemble mode:
   --ensemble-seeds 42,123,2025
 ```
 
+For the proposed architecture experiment, keep the same benchmark data and
+inputs but replace the static CLS-plus-feature classifier with site-aware token
+attention and gated fusion:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture token_gated \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 2e-5 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1
+```
+
+If the single-seed run is promising, evaluate the same architecture as a
+three-seed ensemble:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run ensemble-independent \
+  --architecture token_gated \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 2e-5 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1 \
+  --ensemble-seeds 42,123,2025
+```
+
 Free Colab GPU memory may be tight because ProtBert is large. If the session
 runs out of memory, first try reducing `--batch-size` to `2` or `1`.
 
@@ -167,3 +203,42 @@ The default runner is faithful to the paper/notebook:
 
 For stricter follow-up experiments, prefer `--splitter stratified` and later a
 homology-aware split.
+
+## Proposed Architecture Variant
+
+The `--architecture token_gated` model is designed as a deliberate
+same-dataset architectural change:
+
+```text
+51-aa sequence
+  -> ProtBert token embeddings
+  -> site-aware attention pooling around the central lysine
+  -> sequence representation
+
+27 physicochemical features
+  -> feature projection
+  -> physicochemical representation
+
+sequence representation + physicochemical representation
+  -> learned gated fusion
+  -> residual MLP classifier
+  -> Kla probability
+```
+
+The justification is:
+
+- Kla is site-specific, so token-level residue information around the central
+  lysine should be more informative than a single static pooled vector.
+- The physicochemical vector is a second modality, so learned gating is a more
+  controlled fusion mechanism than blind concatenation.
+- The dataset and feature sources remain unchanged, preserving fair comparison
+  with PCBert-Kla.
+
+Recommended ablation order:
+
+```text
+1. baseline + SGD
+2. baseline + AdamW
+3. token_gated + AdamW
+4. token_gated + AdamW + seed ensemble
+```

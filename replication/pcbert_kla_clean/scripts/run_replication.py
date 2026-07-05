@@ -29,6 +29,7 @@ def ensure_ml_deps() -> None:
     global KFold
     global MinMaxScaler
     global PCBertKla
+    global TokenGatedPCBertKla
     global StratifiedKFold
     global compute_binary_metrics
     global find_best_threshold
@@ -54,7 +55,7 @@ def ensure_ml_deps() -> None:
         find_best_threshold,
         summarize_metric_rows,
     )
-    from pcbert_kla_clean.model import PCBertKla
+    from pcbert_kla_clean.model import PCBertKla, TokenGatedPCBertKla
 
 
 class KlaDataset:
@@ -106,7 +107,7 @@ def make_collate_fn(tokenizer, max_length: int):
 
 
 def train_one_epoch(
-    model: PCBertKla,
+    model: nn.Module,
     loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
@@ -133,7 +134,7 @@ def train_one_epoch(
 
 
 def predict(
-    model: PCBertKla,
+    model: nn.Module,
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
@@ -159,7 +160,7 @@ def predict(
 
 
 def evaluate(
-    model: PCBertKla,
+    model: nn.Module,
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
@@ -192,17 +193,31 @@ def make_loader(
     )
 
 
-def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device) -> PCBertKla:
-    model = PCBertKla(
-        model_name=args.model_name,
-        feature_dim=feature_dim,
-        encoder_layers=args.encoder_layers,
-        cache_dir=args.cache_dir,
-    )
+def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device) -> nn.Module:
+    if args.architecture == "baseline":
+        model = PCBertKla(
+            model_name=args.model_name,
+            feature_dim=feature_dim,
+            encoder_layers=args.encoder_layers,
+            cache_dir=args.cache_dir,
+        )
+    elif args.architecture == "token_gated":
+        model = TokenGatedPCBertKla(
+            model_name=args.model_name,
+            feature_dim=feature_dim,
+            encoder_layers=args.encoder_layers,
+            fusion_dim=args.fusion_dim,
+            attention_dim=args.attention_dim,
+            dropout=args.arch_dropout,
+            site_token_index=args.site_token_index,
+            cache_dir=args.cache_dir,
+        )
+    else:
+        raise ValueError(f"Unsupported architecture: {args.architecture}")
     return model.to(device)
 
 
-def build_optimizer(args: argparse.Namespace, model: PCBertKla):
+def build_optimizer(args: argparse.Namespace, model: nn.Module):
     if args.optimizer == "sgd":
         return torch.optim.SGD(
             model.parameters(),
@@ -364,7 +379,7 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
                 if args.save_models:
                     torch.save(
                         model.state_dict(),
-                        args.output_dir / f"pcbert_kla_fold_{fold_id}.pt",
+                        args.output_dir / f"{args.architecture}_fold_{fold_id}.pt",
                     )
                     joblib.dump(
                         scaler,
@@ -530,7 +545,7 @@ def train_and_predict_independent(
             threshold,
         )
     if args.save_models and output_dir is not None:
-        torch.save(model.state_dict(), output_dir / "pcbert_kla_independent.pt")
+        torch.save(model.state_dict(), output_dir / f"{args.architecture}_independent.pt")
         joblib.dump(scaler, output_dir / "feature_scaler_independent.joblib")
 
     result = {
@@ -722,6 +737,15 @@ def parse_args() -> argparse.Namespace:
         default="data-check",
     )
     parser.add_argument("--model-name", default="Rostlab/prot_bert")
+    parser.add_argument(
+        "--architecture",
+        choices=["baseline", "token_gated"],
+        default="baseline",
+        help=(
+            "Model architecture. 'baseline' preserves PCBert-Kla; 'token_gated' "
+            "uses site-aware token attention and gated physicochemical fusion."
+        ),
+    )
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "outputs")
     parser.add_argument("--device", default="auto")
@@ -741,6 +765,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scheduler", choices=["none", "linear"], default="none")
     parser.add_argument("--warmup-ratio", type=float, default=0.0)
     parser.add_argument("--encoder-layers", type=int, default=4)
+    parser.add_argument("--fusion-dim", type=int, default=256)
+    parser.add_argument("--attention-dim", type=int, default=256)
+    parser.add_argument("--arch-dropout", type=float, default=0.2)
+    parser.add_argument(
+        "--site-token-index",
+        type=int,
+        default=26,
+        help="Token index of the central lysine after ProtBert special tokens are added.",
+    )
     parser.add_argument("--max-length", type=int, default=64)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--monitor-metric", default="ACC")
