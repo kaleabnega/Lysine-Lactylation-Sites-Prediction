@@ -6,6 +6,22 @@ This folder contains a cleaned replication scaffold for the upstream
 The goal is to keep the original cloned baseline untouched while making a
 version that can be run and audited on Google Colab or a local GPU machine.
 
+## Code Layout
+
+```text
+experiment/pcbert_kla_clean/
+├── scripts/run_replication.py        # command-line entry point
+└── src/pcbert_kla_clean/
+    ├── backbones.py                  # PLM loading/tokenizer/site-index helpers
+    ├── data.py                       # PCBert-Kla data parsing and audits
+    ├── datasets.py                   # PyTorch dataset, collation, sequence formatting
+    ├── experiments.py                # CV, independent test, ensemble runners
+    ├── metrics.py                    # ACC, AUC, AUPRC, F1, MCC, Pre, Rec, SP
+    ├── model.py                      # baseline and token-gated architectures
+    ├── training.py                   # training/evaluation loops and optimizer setup
+    └── utils.py                      # reproducibility utilities
+```
+
 ## What This Fixes
 
 - Parses the upstream `train.csv` and `test.csv` files as FASTA-like files.
