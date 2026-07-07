@@ -21,7 +21,7 @@ version that can be run and audited on Google Colab or a local GPU machine.
 From the repository root:
 
 ```bash
-python3 replication/pcbert_kla_clean/scripts/run_replication.py --run data-check
+python3 experiment/pcbert_kla_clean/scripts/run_replication.py --run data-check
 ```
 
 This does not download ProtBert or train anything. It only validates the files
@@ -32,7 +32,7 @@ and prints dataset counts, duplicate sequence counts, and train/test overlap.
 In a Colab notebook, after cloning your research repository:
 
 ```bash
-%cd /content/Dr-Mobeen-Research/replication/pcbert_kla_clean
+%cd /content/Dr-Mobeen-Research/experiment/pcbert_kla_clean
 !pip install -r requirements.txt
 !python3 scripts/run_replication.py --run data-check
 ```

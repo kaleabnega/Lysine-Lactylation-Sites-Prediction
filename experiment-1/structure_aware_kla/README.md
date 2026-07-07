@@ -197,62 +197,62 @@ Milestone checklist:
 A reusable mapping script is available at:
 
 ```text
-experiments/structure_aware_kla/scripts/map_windows_to_proteome.py
+experiment-1/structure_aware_kla/scripts/map_windows_to_proteome.py
 ```
 
 Example command:
 
 ```bash
-python experiments/structure_aware_kla/scripts/map_windows_to_proteome.py \
+python experiment-1/structure_aware_kla/scripts/map_windows_to_proteome.py \
   --proteome-fasta /path/to/rice_proteome.fa \
-  --output-dir experiments/structure_aware_kla/results/window_mapping
+  --output-dir experiment-1/structure_aware_kla/results/window_mapping
 ```
 
 For a single benchmark file:
 
 ```bash
-python experiments/structure_aware_kla/scripts/map_windows_to_proteome.py \
+python experiment-1/structure_aware_kla/scripts/map_windows_to_proteome.py \
   --windows baselines/PCBert-Kla-original/data/test.csv \
   --proteome-fasta /path/to/botrytis_uniprot.fasta \
-  --output-dir experiments/structure_aware_kla/results/botrytis_test_mapping
+  --output-dir experiment-1/structure_aware_kla/results/botrytis_test_mapping
 ```
 
 Supplementary XLSX tables can be converted to CSV without extra Python
 packages:
 
 ```bash
-python experiments/structure_aware_kla/scripts/extract_xlsx_table.py \
+python experiment-1/structure_aware_kla/scripts/extract_xlsx_table.py \
   /path/to/Table_1.XLSX \
   --sheet 'Table S1' \
   --header-row-contains 'Protein accession' \
   --header-row-contains 'Position' \
   --header-row-contains 'Subcellular localization' \
-  --output experiments/structure_aware_kla/results/botrytis_kla_sites.csv
+  --output experiment-1/structure_aware_kla/results/botrytis_kla_sites.csv
 ```
 
 For source tables with modified peptide strings, validate whether benchmark
 windows align to known modified peptides at the central lysine:
 
 ```bash
-python experiments/structure_aware_kla/scripts/validate_windows_against_modified_peptides.py \
+python experiment-1/structure_aware_kla/scripts/validate_windows_against_modified_peptides.py \
   --windows baselines/PCBert-Kla-original/data/test.csv \
-  --site-table-csv experiments/structure_aware_kla/results/botrytis_kla_sites.csv \
-  --output experiments/structure_aware_kla/results/botrytis_window_peptide_validation.csv
+  --site-table-csv experiment-1/structure_aware_kla/results/botrytis_kla_sites.csv \
+  --output experiment-1/structure_aware_kla/results/botrytis_window_peptide_validation.csv
 ```
 
 The full provenance audit can be reproduced with:
 
 ```bash
-python experiments/structure_aware_kla/scripts/audit_dataset_provenance.py \
+python experiment-1/structure_aware_kla/scripts/audit_dataset_provenance.py \
   --pcbert-train baselines/PCBert-Kla-original/data/train.csv \
   --pcbert-test baselines/PCBert-Kla-original/data/test.csv \
   --deepkla-train /path/to/DeepKla/data/upTrain.fa \
   --deepkla-test /path/to/DeepKla/data/fungiForTest.fa \
-  --meng-table-s1 experiments/structure_aware_kla/results/meng_2021_table_s1_rice_lactylated_sites.clean.csv \
+  --meng-table-s1 experiment-1/structure_aware_kla/results/meng_2021_table_s1_rice_lactylated_sites.clean.csv \
   --rice-proteome-fasta /path/to/oryza_sativa_japonica_uniprot.fasta \
   --botrytis-proteome-fasta /path/to/botrytis_b0510_uniprot.fasta \
-  --output-json experiments/structure_aware_kla/results/dataset_provenance_audit.json \
-  --output-md experiments/structure_aware_kla/results/dataset_provenance_audit.md
+  --output-json experiment-1/structure_aware_kla/results/dataset_provenance_audit.json \
+  --output-md experiment-1/structure_aware_kla/results/dataset_provenance_audit.md
 ```
 
 Tested sources:
@@ -405,10 +405,10 @@ The ACS supplementary XLSX for Meng et al. 2021 has now been recovered:
 
 ```text
 Source file:
-  experiments/structure_aware_kla/source_data/meng_2021_rice_lactylome/jf1c00760_si_001.xlsx
+  experiment-1/structure_aware_kla/source_data/meng_2021_rice_lactylome/jf1c00760_si_001.xlsx
 
 Extracted Table S1:
-  experiments/structure_aware_kla/results/meng_2021_table_s1_rice_lactylated_sites.clean.csv
+  experiment-1/structure_aware_kla/results/meng_2021_table_s1_rice_lactylated_sites.clean.csv
 
 Observed Table S1 integrity:
   data rows: 638
@@ -472,7 +472,7 @@ structure-aware model.
 A reproducible audit report is available at:
 
 ```text
-experiments/structure_aware_kla/results/dataset_provenance_audit.md
+experiment-1/structure_aware_kla/results/dataset_provenance_audit.md
 ```
 
 ## Current Interpretation

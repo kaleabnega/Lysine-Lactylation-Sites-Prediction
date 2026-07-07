@@ -250,7 +250,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("experiments/structure_aware_kla/results/window_mapping"),
+        default=Path("experiment-1/structure_aware_kla/results/window_mapping"),
     )
     return parser.parse_args()
 
