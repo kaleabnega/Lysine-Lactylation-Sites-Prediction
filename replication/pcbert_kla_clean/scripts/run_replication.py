@@ -84,15 +84,29 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
+def infer_sequence_format(model_name: str) -> str:
+    if model_name == "Rostlab/prot_bert":
+        return "protbert_spaced"
+    return "raw"
+
+
+def format_sequence(sequence: str, sequence_format: str) -> str:
+    if sequence_format == "raw":
+        return sequence
+    if sequence_format == "protbert_spaced":
+        return " ".join(sequence)
+    raise ValueError(f"Unsupported sequence format: {sequence_format}")
+
+
 def format_protbert_sequence(sequence: str) -> str:
     return " ".join(sequence)
 
 
-def make_collate_fn(tokenizer, max_length: int):
+def make_collate_fn(tokenizer, max_length: int, sequence_format: str):
     def collate(batch):
         sequences, features, labels = zip(*batch)
         encoded = tokenizer(
-            [format_protbert_sequence(sequence) for sequence in sequences],
+            [format_sequence(sequence, sequence_format) for sequence in sequences],
             return_tensors="pt",
             padding=True,
             truncation=True,
@@ -180,6 +194,7 @@ def make_loader(
     batch_size: int,
     shuffle: bool,
     max_length: int,
+    sequence_format: str,
 ) -> DataLoader:
     dataset = KlaDataset(
         sequences=[split.sequences[index] for index in indices],
@@ -190,7 +205,11 @@ def make_loader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        collate_fn=make_collate_fn(tokenizer, max_length=max_length),
+        collate_fn=make_collate_fn(
+            tokenizer,
+            max_length=max_length,
+            sequence_format=sequence_format,
+        ),
     )
 
 
@@ -327,6 +346,9 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
     set_seed(args.seed)
     device = torch.device(args.device)
     tokenizer = load_tokenizer(args.model_name, args.cache_dir)
+    sequence_format = args.sequence_format
+    if sequence_format == "auto":
+        sequence_format = infer_sequence_format(args.model_name)
     labels = train_split.labels
 
     if args.splitter == "stratified":
@@ -347,10 +369,24 @@ def run_cv(args: argparse.Namespace, train_split: KlaSplit) -> None:
         scaled[val_idx] = scaler.transform(train_split.features[val_idx])
 
         train_loader = make_loader(
-            train_split, train_idx, scaled, tokenizer, args.batch_size, True, args.max_length
+            train_split,
+            train_idx,
+            scaled,
+            tokenizer,
+            args.batch_size,
+            True,
+            args.max_length,
+            sequence_format,
         )
         val_loader = make_loader(
-            train_split, val_idx, scaled, tokenizer, args.batch_size, False, args.max_length
+            train_split,
+            val_idx,
+            scaled,
+            tokenizer,
+            args.batch_size,
+            False,
+            args.max_length,
+            sequence_format,
         )
         model = build_model(args, feature_dim=train_split.features.shape[1], device=device)
         criterion = nn.BCELoss()
@@ -423,6 +459,9 @@ def train_and_predict_independent(
 ) -> dict[str, object]:
     set_seed(seed)
     device = torch.device(args.device)
+    sequence_format = args.sequence_format
+    if sequence_format == "auto":
+        sequence_format = infer_sequence_format(args.model_name)
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -445,16 +484,39 @@ def train_and_predict_independent(
     scaled_test = scaler.transform(test_split.features).astype(np.float32)
 
     train_loader = make_loader(
-        train_split, train_idx, scaled_train, tokenizer, args.batch_size, True, args.max_length
+        train_split,
+        train_idx,
+        scaled_train,
+        tokenizer,
+        args.batch_size,
+        True,
+        args.max_length,
+        sequence_format,
     )
     val_loader = (
-        make_loader(train_split, val_idx, scaled_train, tokenizer, args.batch_size, False, args.max_length)
+        make_loader(
+            train_split,
+            val_idx,
+            scaled_train,
+            tokenizer,
+            args.batch_size,
+            False,
+            args.max_length,
+            sequence_format,
+        )
         if len(val_idx)
         else None
     )
     test_indices = np.arange(len(test_split.labels))
     test_loader = make_loader(
-        test_split, test_indices, scaled_test, tokenizer, args.batch_size, False, args.max_length
+        test_split,
+        test_indices,
+        scaled_test,
+        tokenizer,
+        args.batch_size,
+        False,
+        args.max_length,
+        sequence_format,
     )
 
     model = build_model(args, feature_dim=train_split.features.shape[1], device=device)
@@ -749,6 +811,15 @@ def parse_args() -> argparse.Namespace:
         default="data-check",
     )
     parser.add_argument("--model-name", default="Rostlab/prot_bert")
+    parser.add_argument(
+        "--sequence-format",
+        choices=["auto", "protbert_spaced", "raw"],
+        default="auto",
+        help=(
+            "How to format amino-acid windows before tokenization. Use auto for "
+            "ProtBert spaced residues and raw sequences for ESM-style models."
+        ),
+    )
     parser.add_argument(
         "--architecture",
         choices=["baseline", "token_gated", "hybrid_gated"],

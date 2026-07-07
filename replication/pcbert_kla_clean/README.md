@@ -169,6 +169,42 @@ context and adds site-aware token pooling:
   --warmup-ratio 0.1
 ```
 
+To test whether the token-gated framework transfers to another protein language
+model, replace ProtBert with ESM-2. Start with a Colab-friendly ESM-2 checkpoint:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture token_gated \
+  --model-name facebook/esm2_t12_35M_UR50D \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer sgd \
+  --learning-rate 0.003 \
+  --weight-decay 0.0 \
+  --scheduler none
+```
+
+If memory allows, try the stronger 150M checkpoint:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture token_gated \
+  --model-name facebook/esm2_t30_150M_UR50D \
+  --epochs 30 \
+  --batch-size 4 \
+  --device cuda \
+  --optimizer sgd \
+  --learning-rate 0.003 \
+  --weight-decay 0.0 \
+  --scheduler none
+```
+
+The runner uses `--sequence-format auto` by default: ProtBert receives spaced
+residues, while ESM-style models receive raw amino-acid strings.
+
 If the single-seed run is promising, evaluate the same architecture as a
 three-seed ensemble:
 
@@ -259,9 +295,14 @@ Recommended ablation order:
 2. baseline + AdamW
 3. token_gated + AdamW
 4. hybrid_gated + AdamW
-5. best architecture + AdamW + seed ensemble
+5. token_gated + SGD
+6. token_gated + SGD + alternate PLM backbone, such as ESM-2
+7. best architecture + optimizer setting + seed ensemble
 ```
 
 `hybrid_gated` is the conservative follow-up variant: it keeps the baseline CLS
 embedding and augments it with the central-lysine-aware token-pooled embedding
 before gated fusion with physicochemical features.
+
+For backbone ablations, keep the dataset, physicochemical features, architecture,
+optimizer, and evaluation protocol fixed; only change `--model-name`.
