@@ -6,7 +6,11 @@ from torch import nn
 
 def is_t5_like_model(model_name: str) -> bool:
     model_name_lower = model_name.lower()
-    return "prot_t5" in model_name_lower or "prott5" in model_name_lower
+    return (
+        "prot_t5" in model_name_lower
+        or "prott5" in model_name_lower
+        or "ankh" in model_name_lower
+    )
 
 
 def load_encoder(model_name: str, cache_dir: str | None):

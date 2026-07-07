@@ -247,6 +247,30 @@ small truncated ProtT5 encoder. Keep the batch size small:
   --warmup-ratio 0.1
 ```
 
+To add Ankh as another T5-family backbone, start with `ankh-base` and a frozen
+encoder. This is intended as a backbone-ablation entry rather than the main
+headline model:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture token_gated \
+  --model-name ElnaggarLab/ankh-base \
+  --encoder-layers 4 \
+  --freeze-encoder \
+  --epochs 30 \
+  --batch-size 2 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 1e-4 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1
+```
+
+Use `--batch-size 1` if Colab runs out of GPU memory. `ankh-large` is available
+but should be treated as optional because it is substantially heavier.
+
 If the single-seed run is promising, evaluate the same architecture as a
 three-seed ensemble:
 
