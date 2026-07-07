@@ -203,7 +203,49 @@ If memory allows, try the stronger 150M checkpoint:
 ```
 
 The runner uses `--sequence-format auto` by default: ProtBert receives spaced
-residues, while ESM-style models receive raw amino-acid strings.
+residues, ProtT5 receives spaced residues with rare amino acids mapped to `X`,
+and ESM-style models receive raw amino-acid strings.
+
+To add a T5-family protein language model to the backbone comparison table, use
+the encoder-only half-precision ProtT5 checkpoint. Start with the encoder frozen
+so Colab trains only the token-gated prediction head while using ProtT5 as a
+feature extractor:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture token_gated \
+  --model-name Rostlab/prot_t5_xl_half_uniref50-enc \
+  --encoder-layers 4 \
+  --freeze-encoder \
+  --epochs 30 \
+  --batch-size 2 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 1e-4 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1
+```
+
+If memory allows and the frozen-encoder result is promising, try fine-tuning a
+small truncated ProtT5 encoder. Keep the batch size small:
+
+```bash
+!python3 scripts/run_replication.py \
+  --run independent \
+  --architecture token_gated \
+  --model-name Rostlab/prot_t5_xl_half_uniref50-enc \
+  --encoder-layers 4 \
+  --epochs 30 \
+  --batch-size 1 \
+  --device cuda \
+  --optimizer adamw \
+  --learning-rate 1e-5 \
+  --weight-decay 0.01 \
+  --scheduler linear \
+  --warmup-ratio 0.1
+```
 
 If the single-seed run is promising, evaluate the same architecture as a
 three-seed ensemble:

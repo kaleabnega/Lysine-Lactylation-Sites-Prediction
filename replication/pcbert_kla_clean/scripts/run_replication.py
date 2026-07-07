@@ -5,6 +5,7 @@ import csv
 import gc
 import json
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -87,7 +88,20 @@ def set_seed(seed: int) -> None:
 def infer_sequence_format(model_name: str) -> str:
     if model_name == "Rostlab/prot_bert":
         return "protbert_spaced"
+    if is_t5_like_model_name(model_name):
+        return "prott5_spaced"
     return "raw"
+
+
+def is_t5_like_model_name(model_name: str) -> bool:
+    model_name_lower = model_name.lower()
+    return "prot_t5" in model_name_lower or "prott5" in model_name_lower
+
+
+def infer_site_token_index(model_name: str) -> int:
+    if is_t5_like_model_name(model_name):
+        return 25
+    return 26
 
 
 def format_sequence(sequence: str, sequence_format: str) -> str:
@@ -95,6 +109,8 @@ def format_sequence(sequence: str, sequence_format: str) -> str:
         return sequence
     if sequence_format == "protbert_spaced":
         return " ".join(sequence)
+    if sequence_format == "prott5_spaced":
+        return " ".join(re.sub(r"[UZOB]", "X", sequence))
     raise ValueError(f"Unsupported sequence format: {sequence_format}")
 
 
@@ -219,6 +235,7 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
             model_name=args.model_name,
             feature_dim=feature_dim,
             encoder_layers=args.encoder_layers,
+            freeze_encoder=args.freeze_encoder,
             cache_dir=args.cache_dir,
         )
     elif args.architecture == "token_gated":
@@ -230,6 +247,7 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
             attention_dim=args.attention_dim,
             dropout=args.arch_dropout,
             site_token_index=args.site_token_index,
+            freeze_encoder=args.freeze_encoder,
             cache_dir=args.cache_dir,
         )
     elif args.architecture == "hybrid_gated":
@@ -241,6 +259,7 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
             attention_dim=args.attention_dim,
             dropout=args.arch_dropout,
             site_token_index=args.site_token_index,
+            freeze_encoder=args.freeze_encoder,
             cache_dir=args.cache_dir,
         )
     else:
@@ -249,16 +268,22 @@ def build_model(args: argparse.Namespace, feature_dim: int, device: torch.device
 
 
 def build_optimizer(args: argparse.Namespace, model: nn.Module):
+    trainable_parameters = [
+        parameter for parameter in model.parameters() if parameter.requires_grad
+    ]
+    if not trainable_parameters:
+        raise ValueError("No trainable parameters; check --freeze-encoder and architecture")
+
     if args.optimizer == "sgd":
         return torch.optim.SGD(
-            model.parameters(),
+            trainable_parameters,
             lr=args.learning_rate,
             momentum=args.sgd_momentum,
             weight_decay=args.weight_decay,
         )
     if args.optimizer == "adamw":
         return torch.optim.AdamW(
-            model.parameters(),
+            trainable_parameters,
             lr=args.learning_rate,
             betas=(args.adam_beta1, args.adam_beta2),
             eps=args.adam_epsilon,
@@ -813,11 +838,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="Rostlab/prot_bert")
     parser.add_argument(
         "--sequence-format",
-        choices=["auto", "protbert_spaced", "raw"],
+        choices=["auto", "protbert_spaced", "prott5_spaced", "raw"],
         default="auto",
         help=(
             "How to format amino-acid windows before tokenization. Use auto for "
-            "ProtBert spaced residues and raw sequences for ESM-style models."
+            "ProtBert/ProtT5 spaced residues and raw sequences for ESM-style models."
         ),
     )
     parser.add_argument(
@@ -849,14 +874,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scheduler", choices=["none", "linear"], default="none")
     parser.add_argument("--warmup-ratio", type=float, default=0.0)
     parser.add_argument("--encoder-layers", type=int, default=4)
+    parser.add_argument(
+        "--freeze-encoder",
+        action="store_true",
+        help="Train only the task-specific head while using the PLM as a feature extractor.",
+    )
     parser.add_argument("--fusion-dim", type=int, default=256)
     parser.add_argument("--attention-dim", type=int, default=256)
     parser.add_argument("--arch-dropout", type=float, default=0.2)
     parser.add_argument(
         "--site-token-index",
         type=int,
-        default=26,
-        help="Token index of the central lysine after ProtBert special tokens are added.",
+        default=None,
+        help=(
+            "Token index of the central lysine after tokenization. Defaults to 26 "
+            "for CLS-based models and 25 for T5-style encoder models."
+        ),
     )
     parser.add_argument("--max-length", type=int, default=64)
     parser.add_argument("--patience", type=int, default=0)
@@ -884,6 +917,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.site_token_index is None:
+        args.site_token_index = infer_site_token_index(args.model_name)
+
     train_split = load_split(
         args.baseline_root / "data" / "train.csv",
         args.baseline_root / "data" / "feature_train.csv",

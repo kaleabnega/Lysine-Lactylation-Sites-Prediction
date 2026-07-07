@@ -4,11 +4,18 @@ import torch
 from torch import nn
 
 
+def is_t5_like_model(model_name: str) -> bool:
+    model_name_lower = model_name.lower()
+    return "prot_t5" in model_name_lower or "prott5" in model_name_lower
+
+
 def load_encoder(model_name: str, cache_dir: str | None):
-    from transformers import AutoModel, BertModel
+    from transformers import AutoModel, BertModel, T5EncoderModel
 
     if model_name == "Rostlab/prot_bert":
         return BertModel.from_pretrained(model_name, cache_dir=cache_dir)
+    if is_t5_like_model(model_name):
+        return T5EncoderModel.from_pretrained(model_name, cache_dir=cache_dir)
     return AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
 
 
@@ -17,12 +24,56 @@ def truncate_encoder_layers(encoder: nn.Module, encoder_layers: int) -> None:
         raise ValueError("encoder_layers must be positive")
 
     bert_encoder = getattr(encoder, "encoder", None)
-    if bert_encoder is None or not hasattr(bert_encoder, "layer"):
-        raise ValueError("Expected a BERT-like model with encoder.layer")
+    if bert_encoder is None:
+        raise ValueError("Expected an encoder-backed transformer model")
 
-    layers = bert_encoder.layer
-    if encoder_layers < len(layers):
-        bert_encoder.layer = nn.ModuleList(list(layers[:encoder_layers]))
+    if hasattr(bert_encoder, "layer"):
+        layers = bert_encoder.layer
+        if encoder_layers < len(layers):
+            bert_encoder.layer = nn.ModuleList(list(layers[:encoder_layers]))
+        return
+
+    if hasattr(bert_encoder, "block"):
+        layers = bert_encoder.block
+        if encoder_layers < len(layers):
+            bert_encoder.block = nn.ModuleList(list(layers[:encoder_layers]))
+        return
+
+    raise ValueError("Expected encoder.layer or encoder.block")
+
+
+def set_encoder_trainable(encoder: nn.Module, trainable: bool) -> None:
+    for parameter in encoder.parameters():
+        parameter.requires_grad = trainable
+
+
+def encode_with_optional_freeze(
+    encoder: nn.Module,
+    model_inputs: dict[str, torch.Tensor],
+    freeze_encoder: bool,
+):
+    if not freeze_encoder:
+        return encoder(**model_inputs)
+
+    was_training = encoder.training
+    encoder.eval()
+    with torch.no_grad():
+        outputs = encoder(**model_inputs)
+    if was_training:
+        encoder.train()
+    return outputs
+
+
+def encoder_hidden_size(encoder: nn.Module) -> int:
+    hidden_size = getattr(encoder.config, "hidden_size", None)
+    if hidden_size is not None:
+        return int(hidden_size)
+
+    d_model = getattr(encoder.config, "d_model", None)
+    if d_model is not None:
+        return int(d_model)
+
+    raise ValueError("Encoder config must expose hidden_size or d_model")
 
 
 class FeatureAttention(nn.Module):
@@ -43,13 +94,16 @@ class PCBertKla(nn.Module):
         encoder_layers: int = 4,
         dropout1: float = 0.1,
         dropout2: float = 0.3,
+        freeze_encoder: bool = False,
         cache_dir: str | None = None,
     ) -> None:
         super().__init__()
+        self.freeze_encoder = freeze_encoder
         self.encoder = load_encoder(model_name, cache_dir)
         truncate_encoder_layers(self.encoder, encoder_layers)
+        set_encoder_trainable(self.encoder, trainable=not freeze_encoder)
 
-        hidden_size = int(self.encoder.config.hidden_size)
+        hidden_size = encoder_hidden_size(self.encoder)
         self.fc1 = nn.Linear(hidden_size + feature_dim, 32)
         self.attention = FeatureAttention(32)
         self.fc2 = nn.Linear(32, 8)
@@ -70,8 +124,12 @@ class PCBertKla(nn.Module):
         if token_type_ids is not None:
             model_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.encoder(**model_inputs)
-        cls_embedding = outputs.last_hidden_state[:, 0, :]
+        outputs = encode_with_optional_freeze(
+            self.encoder,
+            model_inputs,
+            self.freeze_encoder,
+        )
+        cls_embedding = outputs.last_hidden_state[:, 0, :].to(features.dtype)
         x = torch.cat((cls_embedding, features), dim=1)
         x = self.dropout1(x)
         x = self.relu(self.fc1(x))
@@ -88,9 +146,11 @@ class SiteAttentionPooling(nn.Module):
         hidden_size: int,
         attention_dim: int = 256,
         site_token_index: int = 26,
+        has_start_token: bool = True,
     ) -> None:
         super().__init__()
         self.site_token_index = site_token_index
+        self.has_start_token = has_start_token
         self.token_projection = nn.Linear(hidden_size, attention_dim)
         self.site_projection = nn.Linear(hidden_size, attention_dim)
         self.score = nn.Linear(attention_dim, 1, bias=False)
@@ -112,7 +172,8 @@ class SiteAttentionPooling(nn.Module):
         ).squeeze(-1)
 
         residue_mask = attention_mask.bool().clone()
-        residue_mask[:, 0] = False
+        if self.has_start_token:
+            residue_mask[:, 0] = False
         sep_indices = attention_mask.long().sum(dim=1) - 1
         residue_mask[
             torch.arange(residue_mask.shape[0], device=residue_mask.device),
@@ -169,17 +230,21 @@ class TokenGatedPCBertKla(nn.Module):
         attention_dim: int = 256,
         dropout: float = 0.2,
         site_token_index: int = 26,
+        freeze_encoder: bool = False,
         cache_dir: str | None = None,
     ) -> None:
         super().__init__()
+        self.freeze_encoder = freeze_encoder
         self.encoder = load_encoder(model_name, cache_dir)
         truncate_encoder_layers(self.encoder, encoder_layers)
+        set_encoder_trainable(self.encoder, trainable=not freeze_encoder)
 
-        hidden_size = int(self.encoder.config.hidden_size)
+        hidden_size = encoder_hidden_size(self.encoder)
         self.site_attention = SiteAttentionPooling(
             hidden_size=hidden_size,
             attention_dim=attention_dim,
             site_token_index=site_token_index,
+            has_start_token=not is_t5_like_model(model_name),
         )
         self.sequence_projection = nn.Sequential(
             nn.LayerNorm(hidden_size),
@@ -215,8 +280,13 @@ class TokenGatedPCBertKla(nn.Module):
         if token_type_ids is not None:
             model_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.encoder(**model_inputs)
-        sequence_embedding = self.site_attention(outputs.last_hidden_state, attention_mask)
+        outputs = encode_with_optional_freeze(
+            self.encoder,
+            model_inputs,
+            self.freeze_encoder,
+        )
+        token_embeddings = outputs.last_hidden_state.to(features.dtype)
+        sequence_embedding = self.site_attention(token_embeddings, attention_mask)
         sequence_embedding = self.sequence_projection(sequence_embedding)
         feature_embedding = self.feature_projection(features)
         fused = self.fusion(sequence_embedding, feature_embedding)
@@ -235,17 +305,21 @@ class HybridTokenGatedPCBertKla(nn.Module):
         attention_dim: int = 256,
         dropout: float = 0.2,
         site_token_index: int = 26,
+        freeze_encoder: bool = False,
         cache_dir: str | None = None,
     ) -> None:
         super().__init__()
+        self.freeze_encoder = freeze_encoder
         self.encoder = load_encoder(model_name, cache_dir)
         truncate_encoder_layers(self.encoder, encoder_layers)
+        set_encoder_trainable(self.encoder, trainable=not freeze_encoder)
 
-        hidden_size = int(self.encoder.config.hidden_size)
+        hidden_size = encoder_hidden_size(self.encoder)
         self.site_attention = SiteAttentionPooling(
             hidden_size=hidden_size,
             attention_dim=attention_dim,
             site_token_index=site_token_index,
+            has_start_token=not is_t5_like_model(model_name),
         )
         self.sequence_projection = nn.Sequential(
             nn.LayerNorm(hidden_size * 2),
@@ -280,9 +354,14 @@ class HybridTokenGatedPCBertKla(nn.Module):
         if token_type_ids is not None:
             model_inputs["token_type_ids"] = token_type_ids
 
-        outputs = self.encoder(**model_inputs)
-        cls_embedding = outputs.last_hidden_state[:, 0, :]
-        site_embedding = self.site_attention(outputs.last_hidden_state, attention_mask)
+        outputs = encode_with_optional_freeze(
+            self.encoder,
+            model_inputs,
+            self.freeze_encoder,
+        )
+        token_embeddings = outputs.last_hidden_state.to(features.dtype)
+        cls_embedding = token_embeddings[:, 0, :]
+        site_embedding = self.site_attention(token_embeddings, attention_mask)
         sequence_embedding = self.sequence_projection(
             torch.cat((cls_embedding, site_embedding), dim=1)
         )
