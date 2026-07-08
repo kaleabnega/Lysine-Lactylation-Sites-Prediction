@@ -1,6 +1,6 @@
 # Lysine Lactylation Site Prediction
 
-This repository contains a research implementation for lysine lactylation
+This repository contains the implementation for lysine lactylation
 site prediction based on the PCBert-Kla benchmark. The project keeps the
 original baseline code separate from the cleaned and extended experimental
 framework so that results can be reproduced and audited.

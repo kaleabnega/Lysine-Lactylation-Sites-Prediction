@@ -1,10 +1,9 @@
 # Structure-Aware Kla Prediction Plan
 
-This experiment branch is for a publishable architectural extension of
+This experiment branch is for an architectural extension of
 PCBert-Kla. The current best-performing model improves the baseline with
 AdamW fine-tuning and seed ensembling, but its neural architecture is still the
-same core PCBert-Kla design. A paper-level contribution should add a new model
-component with biological motivation.
+same core PCBert-Kla design. 
 
 ## Proposed Model
 
@@ -67,9 +66,6 @@ branch can encode the local chemical/spatial environment around lysine:
 - local residue contact pattern
 - secondary-structure context
 - confidence of predicted structure, such as pLDDT if using AlphaFold outputs
-
-This gives a stronger publication argument than optimizer tuning or ensembling
-alone.
 
 ## Current Data Blocker
 
@@ -164,7 +160,7 @@ Minimum ablation table:
 7. Struct-PCBert-Kla without structure branch
 ```
 
-The key publication claim should come from comparing variants 2 and 4, because
+The key claim should come from comparing variants 2 and 4, because
 that isolates the architectural contribution.
 
 ## First Implementation Milestone

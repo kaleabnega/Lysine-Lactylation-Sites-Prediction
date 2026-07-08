@@ -1,7 +1,6 @@
-# Clean PCBert-Kla Replication
+# PCBert-Kla Extension
 
-This folder contains a cleaned replication scaffold for the upstream
-`PCBert-Kla` notebook in `../../baselines/PCBert-Kla-original`.
+This folder contains scripts for achieving satisfactory Kla sites prediction.
 
 The goal is to keep the original cloned baseline untouched while making a
 version that can be run and audited on Google Colab or a local GPU machine.
