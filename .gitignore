@@ -1,0 +1,6 @@
+.agents
+.codex
+__pycache__/
+*.py[cod]
+.env
+research-documents/
