@@ -168,34 +168,54 @@ class TokenGatedPCBertKla(nn.Module):
         dropout: float = 0.2,
         site_token_index: int = 26,
         freeze_encoder: bool = False,
+        ablation: str = "none",
         cache_dir: str | None = None,
     ) -> None:
         super().__init__()
-        self.freeze_encoder = freeze_encoder
-        self.encoder = load_encoder(model_name, cache_dir)
-        truncate_encoder_layers(self.encoder, encoder_layers)
-        set_encoder_trainable(self.encoder, trainable=not freeze_encoder)
+        if ablation not in {
+            "none",
+            "no_gated_fusion",
+            "no_physicochemical",
+            "no_sequence",
+        }:
+            raise ValueError(f"Unsupported token-gated ablation mode: {ablation}")
 
-        hidden_size = encoder_hidden_size(self.encoder)
-        self.site_attention = SiteAttentionPooling(
-            hidden_size=hidden_size,
-            attention_dim=attention_dim,
-            site_token_index=site_token_index,
-            has_start_token=not is_t5_like_model(model_name),
-        )
-        self.sequence_projection = nn.Sequential(
-            nn.LayerNorm(hidden_size),
-            nn.Linear(hidden_size, fusion_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
-        self.feature_projection = nn.Sequential(
-            nn.LayerNorm(feature_dim),
-            nn.Linear(feature_dim, fusion_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
-        self.fusion = GatedFusion(fusion_dim)
+        self.freeze_encoder = freeze_encoder
+        self.ablation = ablation
+        self.uses_sequence = ablation != "no_sequence"
+        self.uses_features = ablation != "no_physicochemical"
+
+        if self.uses_sequence:
+            self.encoder = load_encoder(model_name, cache_dir)
+            truncate_encoder_layers(self.encoder, encoder_layers)
+            set_encoder_trainable(self.encoder, trainable=not freeze_encoder)
+            hidden_size = encoder_hidden_size(self.encoder)
+            self.site_attention = SiteAttentionPooling(
+                hidden_size=hidden_size,
+                attention_dim=attention_dim,
+                site_token_index=site_token_index,
+                has_start_token=not is_t5_like_model(model_name),
+            )
+            self.sequence_projection = nn.Sequential(
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, fusion_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+        else:
+            self.encoder = None
+
+        if self.uses_features:
+            self.feature_projection = nn.Sequential(
+                nn.LayerNorm(feature_dim),
+                nn.Linear(feature_dim, fusion_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+
+        if self.uses_sequence and self.uses_features and ablation == "none":
+            self.fusion = GatedFusion(fusion_dim)
+
         self.classifier = nn.Sequential(
             ResidualBlock(fusion_dim, dropout=dropout),
             ResidualBlock(fusion_dim, dropout=dropout),
@@ -213,20 +233,46 @@ class TokenGatedPCBertKla(nn.Module):
         features: torch.Tensor,
         token_type_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        model_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
-        if token_type_ids is not None:
-            model_inputs["token_type_ids"] = token_type_ids
+        sequence_embedding = None
+        feature_embedding = None
 
-        outputs = encode_with_optional_freeze(
-            self.encoder,
-            model_inputs,
-            self.freeze_encoder,
-        )
-        token_embeddings = outputs.last_hidden_state.to(features.dtype)
-        sequence_embedding = self.site_attention(token_embeddings, attention_mask)
-        sequence_embedding = self.sequence_projection(sequence_embedding)
-        feature_embedding = self.feature_projection(features)
-        fused = self.fusion(sequence_embedding, feature_embedding)
+        if self.uses_sequence:
+            model_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+            if token_type_ids is not None:
+                model_inputs["token_type_ids"] = token_type_ids
+            if self.encoder is None:
+                raise RuntimeError("Sequence branch requested but encoder is not initialized")
+            outputs = encode_with_optional_freeze(
+                self.encoder,
+                model_inputs,
+                self.freeze_encoder,
+            )
+            token_embeddings = outputs.last_hidden_state.to(features.dtype)
+            sequence_embedding = self.site_attention(token_embeddings, attention_mask)
+            sequence_embedding = self.sequence_projection(sequence_embedding)
+
+        if self.uses_features:
+            feature_embedding = self.feature_projection(features)
+
+        if self.ablation == "none":
+            if sequence_embedding is None or feature_embedding is None:
+                raise RuntimeError("Full token-gated model requires both branches")
+            fused = self.fusion(sequence_embedding, feature_embedding)
+        elif self.ablation == "no_gated_fusion":
+            if sequence_embedding is None or feature_embedding is None:
+                raise RuntimeError("Ungated fusion ablation requires both branches")
+            fused = 0.5 * (sequence_embedding + feature_embedding)
+        elif self.ablation == "no_physicochemical":
+            if sequence_embedding is None:
+                raise RuntimeError("No-physicochemical ablation requires sequence branch")
+            fused = sequence_embedding
+        elif self.ablation == "no_sequence":
+            if feature_embedding is None:
+                raise RuntimeError("No-sequence ablation requires feature branch")
+            fused = feature_embedding
+        else:
+            raise ValueError(f"Unsupported token-gated ablation mode: {self.ablation}")
+
         return torch.sigmoid(self.classifier(fused)).squeeze(-1)
 
 

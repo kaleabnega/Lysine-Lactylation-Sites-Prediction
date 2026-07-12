@@ -76,6 +76,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attention-dim", type=int, default=256)
     parser.add_argument("--arch-dropout", type=float, default=0.2)
     parser.add_argument(
+        "--ablation",
+        choices=["none", "no_gated_fusion", "no_physicochemical", "no_sequence"],
+        default="none",
+        help=(
+            "Token-gated ablation mode. Use 'none' for the full model, "
+            "'no_gated_fusion' for ungated averaging of sequence/features, "
+            "'no_physicochemical' for sequence-only, and 'no_sequence' for "
+            "physicochemical-features-only."
+        ),
+    )
+    parser.add_argument(
         "--site-token-index",
         type=int,
         default=None,

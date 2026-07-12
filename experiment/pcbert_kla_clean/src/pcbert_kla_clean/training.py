@@ -100,6 +100,7 @@ def build_model(args: Namespace, feature_dim: int, device: torch.device) -> nn.M
             dropout=args.arch_dropout,
             site_token_index=args.site_token_index,
             freeze_encoder=args.freeze_encoder,
+            ablation=args.ablation,
             cache_dir=args.cache_dir,
         )
     elif args.architecture == "hybrid_gated":
