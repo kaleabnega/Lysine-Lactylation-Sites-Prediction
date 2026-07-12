@@ -1,0 +1,17 @@
+{
+  "ACC": 0.96045197740113,
+  "AUC": 0.9719908072392991,
+  "AUPRC": 0.9571143449799782,
+  "Command": "python scripts/run_replication.py --run independent --architecture token_gated --model-name facebook/esm2_t12_35M_UR50D --epochs 30 --batch-size 4 --device cuda --optimizer adamw --learning-rate 2e-5 --weight-decay 0.01 --scheduler linear --warmup-ratio 0.1",
+  "F1": 0.96045197740113,
+  "MCC": 0.9209039548022598,
+  "Model": "ESM-2 35M token-gated AdamW",
+  "Pre": 0.96045197740113,
+  "Rec": 0.96045197740113,
+  "Result marker": "Independent test",
+  "SP": 0.96045197740113,
+  "Setting": "Token-gated backbone comparison",
+  "loss": 0.3708485262735787,
+  "threshold": 0.5,
+  "threshold_source": "fixed"
+}

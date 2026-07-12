@@ -1,0 +1,17 @@
+{
+  "ACC": 0.96045197740113,
+  "AUC": 0.974560311532446,
+  "AUPRC": 0.9699405722586214,
+  "Command": "python scripts/run_replication.py --run independent --architecture token_gated --model-name ElnaggarLab/ankh-base --encoder-layers 4 --freeze-encoder --epochs 30 --batch-size 2 --device cuda --optimizer adamw --learning-rate 1e-4 --weight-decay 0.01 --scheduler linear --warmup-ratio 0.1",
+  "F1": 0.9606741573033708,
+  "MCC": 0.9209627496663179,
+  "Model": "Ankh-base token-gated frozen",
+  "Pre": 0.9553072625698324,
+  "Rec": 0.9661016949152542,
+  "Result marker": "Independent test",
+  "SP": 0.9548022598870056,
+  "Setting": "Token-gated backbone comparison",
+  "loss": 0.32907614515531,
+  "threshold": 0.5,
+  "threshold_source": "fixed"
+}

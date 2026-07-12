@@ -1,0 +1,17 @@
+{
+  "ACC": 0.963276836158192,
+  "AUC": 0.9715439369274474,
+  "AUPRC": 0.9585340423922376,
+  "Command": "python scripts/run_replication.py --run independent --architecture token_gated --epochs 30 --batch-size 4 --device cuda --optimizer sgd --learning-rate 0.003 --weight-decay 0.0 --scheduler none",
+  "F1": 0.9635854341736695,
+  "MCC": 0.9266867882817742,
+  "Model": "ProtBert token-gated",
+  "Pre": 0.9555555555555556,
+  "Rec": 0.9717514124293786,
+  "Result marker": "Independent test",
+  "SP": 0.9548022598870056,
+  "Setting": "SGD, 4 encoder layers, fine-tuned",
+  "loss": 0.24929992309764937,
+  "threshold": 0.5,
+  "threshold_source": "fixed"
+}

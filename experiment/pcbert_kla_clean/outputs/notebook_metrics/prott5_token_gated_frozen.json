@@ -1,0 +1,17 @@
+{
+  "ACC": 0.940677966101695,
+  "AUC": 0.9714481790034791,
+  "AUPRC": 0.9702612039044716,
+  "Command": "python scripts/run_replication.py --run independent --architecture token_gated --model-name Rostlab/prot_t5_xl_half_uniref50-enc --encoder-layers 4 --freeze-encoder --epochs 30 --batch-size 2 --device cuda --optimizer adamw --learning-rate 1e-4 --weight-decay 0.01 --scheduler linear --warmup-ratio 0.1",
+  "F1": 0.9418282548476454,
+  "MCC": 0.8820459824122062,
+  "Model": "ProtT5 token-gated frozen",
+  "Pre": 0.9239130434782609,
+  "Rec": 0.96045197740113,
+  "Result marker": "Independent test",
+  "SP": 0.9209039548022598,
+  "Setting": "Token-gated backbone comparison",
+  "loss": 0.5642812462377506,
+  "threshold": 0.5,
+  "threshold_source": "fixed"
+}
