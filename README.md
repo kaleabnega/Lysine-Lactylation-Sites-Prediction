@@ -133,7 +133,6 @@ Ankh-base frozen backbone:
 
 ## Notes
 
-- The original baseline folder should be treated as a reference copy.
 - The active proposed-method code is in `experiment/pcbert_kla_clean/`.
 - The `experiment-1/structure_aware_kla/` folder is exploratory provenance work
   and is not required for the current token-gated benchmark runs.
