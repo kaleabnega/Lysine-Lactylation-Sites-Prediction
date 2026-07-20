@@ -178,4 +178,3 @@ causal biological proof.
 - The original cloned baseline is retained in `baselines/PCBert-Kla-original/`.
 - `experiment-1/structure_aware_kla/` contains earlier exploratory work and is
   not required for the current token-gated benchmark experiments.
-- Research documents and local prompt files are intentionally ignored by git.
